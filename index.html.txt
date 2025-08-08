@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Hairstyle Simulator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            border: 2px solid #ccc;
+            background-color: #fff;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        video, canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform: scaleX(-1); /* Mirror the video */
+            -webkit-transform: scaleX(-1);
+            -moz-transform: scaleX(-1);
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        .hairstyle-btn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 120px;
+        }
+        .hairstyle-btn:hover {
+            background-color: #45a049;
+        }
+        .hairstyle-icon {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 5px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid white;
+        }
+        #loading-message {
+            margin-top: 20px;
+            font-size: 1.2em;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI Hairstyle Simulator</h1>
+    <p id="loading-message">กำลังโหลดโมเดล AI... โปรดรอสักครู่</p>
+    <div class="container">
+        <video id="videoElement" width="640" height="480" autoplay></video>
+        <canvas id="canvasElement" width="640" height="480"></canvas>
+    </div>
+
+    <div class="controls">
+        </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
+
+    <script>
+        const video = document.getElementById('videoElement');
+        const canvas = document.getElementById('canvasElement');
+        const context = canvas.getContext('2d');
+        const loadingMessage = document.getElementById('loading-message');
+        const controlsDiv = document.querySelector('.controls');
+
+        let model;
+        let selectedHairstyle = null;
+
+        // --- ฐานข้อมูลทรงผม (ทดลอง) ---
+        // คุณสามารถเพิ่มทรงผมอื่นๆ ได้ที่นี่
+        const hairstyles = [
+            {
+                name: "หน้าม้า",
+                image: "https://i.imgur.com/uRj05hR.png", // PNG image with transparent background
+                description: "สำหรับใบหน้ารูปไข่และหน้าผากกว้าง"
+            },
+            {
+                name: "ทรงผมสั้นบ๊อบ",
+                image: "https://i.imgur.com/vHqB4T0.png",
+                description: "เหมาะกับใบหน้ากลม"
+            },
+            {
+                name: "ผมยาวดัดลอน",
+                image: "https://i.imgur.com/o338uN5.png",
+                description: "เหมาะกับใบหน้าเหลี่ยม"
+            },
+        ];
+
+        // --- ฟังก์ชันหลักในการรันโปรแกรม ---
+        async function main() {
+            try {
+                // 1. โหลดโมเดล FaceMesh
+                model = await faceLandmarksDetection.load(faceLandmarksDetection.SupportedPackages.mediapipeFaceMesh);
+                loadingMessage.innerText = "โมเดลโหลดเสร็จสิ้น! กำลังขออนุญาตเข้าถึงกล้อง...";
+
+                // 2. ตั้งค่ากล้อง
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                };
+
+                // 3. สร้างปุ่มทรงผม
+                hairstyles.forEach((hairstyle, index) => {
+                    const button = document.createElement('button');
+                    button.className = 'hairstyle-btn';
+                    button.innerHTML = `<img src="${hairstyle.image}" class="hairstyle-icon" alt="${hairstyle.name}"><br>${hairstyle.name}`;
+                    button.onclick = () => {
+                        selectedHairstyle = new Image();
+                        selectedHairstyle.src = hairstyle.image;
+                        selectedHairstyle.onload = () => {
+                            console.log(`Selected: ${hairstyle.name}`);
+                        };
+                    };
+                    controlsDiv.appendChild(button);
+                });
+
+                loadingMessage.style.display = 'none'; // ซ่อนข้อความโหลด
+                startDetection();
+
+            } catch (error) {
+                console.error("Error setting up the application: ", error);
+                loadingMessage.innerText = `เกิดข้อผิดพลาด: ${error.message}`;
+            }
+        }
+
+        // --- ฟังก์ชันสำหรับตรวจจับใบหน้าและวาดทรงผม ---
+        async function startDetection() {
+            const detectFaces = async () => {
+                if (model && video.readyState >= 2) {
+                    const predictions = await model.estimateFaces({
+                        input: video,
+                        returnTensors: false,
+                        flipHorizontal: false,
+                    });
+
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                    if (predictions.length > 0) {
+                        const face = predictions[0];
+                        const landmarks = face.scaledMesh;
+
+                        // --- การวิเคราะห์โครงหน้า (จำลอง) ---
+                        // ในโค้ดจริง คุณจะต้องเขียนโค้ดที่ซับซ้อนกว่านี้
+                        // เพื่อวัดระยะห่างระหว่างจุดต่างๆ
+                        // แล้วนำค่าที่ได้มาเปรียบเทียบเพื่อระบุประเภทโครงหน้า
+                        // แล้วจึงแสดงปุ่มที่เหมาะกับโครงหน้านั้นๆ
+
+                        // --- การวางซ้อนทรงผม (AR) ---
+                        if (selectedHairstyle) {
+                            // หาจุดสำคัญของศีรษะ (top of head, sides)
+                            // จุดที่ 10 เป็นจุดที่อยู่บนสุดของศีรษะ
+                            const top = landmarks[10];
+                            const left = landmarks[234];
+                            const right = landmarks[454];
+
+                            // คำนวณขนาดและตำแหน่งของทรงผม
+                            const headWidth = Math.abs(right[0] - left[0]) * 1.5; // ขยายขนาดให้กว้างขึ้น
+                            const headHeight = headWidth * (selectedHairstyle.height / selectedHairstyle.width);
+                            
+                            const x = top[0] - (headWidth / 2);
+                            const y = top[1] - (headHeight / 1.5); // เลื่อนทรงผมขึ้นไปด้านบน
+                            
+                            // วาดทรงผมลงบน canvas
+                            context.drawImage(selectedHairstyle, x, y, headWidth, headHeight);
+                        }
+                    }
+                }
+                requestAnimationFrame(detectFaces);
+            };
+            detectFaces();
+        }
+
+        // เริ่มต้นการทำงานทั้งหมด
+        window.addEventListener('load', main);
+    </script>
+</body>
+</html>
